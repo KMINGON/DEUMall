@@ -1,0 +1,361 @@
+#define _CRT_SECURE_NO_WARNINGS
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <ctype.h>
+#include <string.h>
+#include <conio.h>
+#include <stdbool.h>
+#include "execute_query.h"
+/* for oracle */
+#include <sqlda.h>
+#include <sqlca.h>
+#include <sqlcpr.h>
+
+
+#define getch() _getch()
+
+void DB_connect();
+struct MembersDto select_MemberId(char id[]);
+void execute_update(char query[]);
+void sql_error();
+struct ItemsDto *select_ItemList();
+struct MembersDto *select_MemberList();
+
+EXEC SQL BEGIN DECLARE SECTION;
+	VARCHAR uid[80];
+	VARCHAR pwd[20];
+EXEC SQL END DECLARE SECTION;
+
+
+
+
+void DB_connect()
+{
+   /* 아이디와 패스워드 수정해서 넣으세요*/
+    strcpy((char *)uid.arr,"a20193174@//sedb.deu.ac.kr:1521/orcl");
+    uid.len = (short) strlen((char *)uid.arr);
+    strcpy((char *)pwd.arr,"20193174");
+    pwd.len = (short) strlen((char *)pwd.arr);
+
+    EXEC SQL CONNECT :uid IDENTIFIED BY :pwd;
+	// connection이 실패했을경우의 처리부분
+
+    if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405){ 
+		printf("\7Cconnect error: %s", sqlca.sqlerrm.sqlerrmc);
+		getch();
+		exit(-1);
+    }
+
+    //printf("Oracle Connect SUCCESS by %s\n", uid.arr); //쿼리문 주석
+}
+
+void execute_update(char query[]){ //insert, delete, update
+    DB_connect();
+    EXEC SQL BEGIN DECLARE SECTION;
+        char dynstmt[1000];
+    EXEC SQL END DECLARE SECTION;
+
+    EXEC SQL WHENEVER SQLERROR DO sql_error("\7ORACLE ERROR:\n");
+	
+    sprintf(dynstmt, query);
+
+    EXEC SQL EXECUTE IMMEDIATE :dynstmt ;
+    
+	EXEC SQL COMMIT WORK RELEASE ;
+	
+}
+
+
+struct MembersDto select_MemberId(char id[]){ //select
+    DB_connect();
+    EXEC SQL BEGIN DECLARE SECTION;
+    varchar member_id[100];
+    varchar pw[100];
+    varchar name[100];
+
+    char dynstmt[1000];
+    EXEC SQL END DECLARE SECTION;
+
+    EXEC SQL WHENEVER SQLERROR DO sql_error("\7ORACLE ERROR:\n");
+
+    sprintf(dynstmt, "SELECT member_id, pw, name FROM members where member_id = '%s'", id);
+
+    EXEC SQL PREPARE S FROM :dynstmt ;
+    EXEC SQL DECLARE c_cursor CURSOR FOR S ; 
+    EXEC SQL OPEN c_cursor ;  
+    //EXEC SQL WHENEVER NOT FOUND DO found();
+
+    EXEC SQL FETCH c_cursor INTO :member_id, :pw, :name;
+
+    if(sqlca.sqlcode != 0){
+        struct MembersDto result = {NULL, NULL, NULL};
+        return result;
+    }
+
+    member_id.arr[member_id.len] = '\0';
+    pw.arr[pw.len] = '\0';
+    name.arr[name.len] = '\0';
+
+    struct MembersDto result;
+    strcpy(result.member_id, member_id.arr);
+    strcpy(result.pw, pw.arr);
+    strcpy(result.name, name.arr);
+
+    return result;
+}
+
+struct ItemsDto *select_ItemList(){
+    DB_connect();
+    EXEC SQL BEGIN DECLARE SECTION;
+    varchar item_id[100];
+    varchar name[100];
+    varchar price[100];
+    varchar stock[100];
+    varchar description[250];
+
+    char dynstmt[1000];
+    EXEC SQL END DECLARE SECTION;
+    
+    struct ItemsDto* resultList = (struct ItemsDto*) malloc(sizeof(struct ItemsDto) * 10); //구조체 배열 선언
+
+    sprintf(dynstmt, "SELECT * FROM items");
+
+    EXEC SQL PREPARE D FROM :dynstmt ;
+    EXEC SQL DECLARE d_cursor CURSOR FOR D ; 
+    EXEC SQL OPEN d_cursor;  
+
+    for(int i=0;;i++){
+        EXEC SQL WHENEVER NOT FOUND DO break;
+        EXEC SQL FETCH d_cursor INTO :item_id, :name, :price, :stock, :description;
+            item_id.arr[item_id.len] = '\0';
+            name.arr[name.len] = '\0';
+            price.arr[price.len] = '\0';
+            stock.arr[stock.len] = '\0';
+            description.arr[description.len] = '\0';
+
+            resultList[i].item_id =  atoi(item_id.arr);
+            strcpy(resultList[i].name, name.arr);
+            resultList[i].price = atoi(price.arr); 
+            resultList[i].stock = atoi(stock.arr);
+            strcpy(resultList[i].description, description.arr);
+    }
+
+    int fetch_num = sqlca.sqlerrd[2]; //전송된 튜플의 수
+    return resultList;
+}
+
+struct MembersDto *select_MemberList(){
+    DB_connect();
+
+    EXEC SQL BEGIN DECLARE SECTION;
+    varchar member_id[20];
+    varchar pw[20];
+    varchar name[20];
+
+    char dynstmt[1000];
+    EXEC SQL END DECLARE SECTION;
+
+    struct MembersDto* resultList = (struct MembersDto*) malloc(sizeof(struct MembersDto) * 10); //구조체 배열 선언
+
+    sprintf(dynstmt, "SELECT * FROM members");
+    
+    EXEC SQL PREPARE S FROM :dynstmt ;
+    EXEC SQL DECLARE s_cursor CURSOR FOR S ; 
+    EXEC SQL OPEN s_cursor;  
+
+    for(int i=0;;i++){
+        EXEC SQL WHENEVER NOT FOUND DO break;
+        EXEC SQL FETCH s_cursor INTO :member_id, :pw, :name;
+            member_id.arr[member_id.len] = '\0';
+            pw.arr[pw.len] = '\0';
+            name.arr[name.len] = '\0';
+
+            strcpy(resultList[i].member_id, member_id.arr);
+            strcpy(resultList[i].pw, pw.arr);
+            strcpy(resultList[i].name, name.arr);
+    }
+
+    int fetch_num = sqlca.sqlerrd[2]; //전송된 튜플의 수
+    return resultList;
+}
+
+struct OrdersDto *select_OrderList(){
+    DB_connect();
+
+    EXEC SQL BEGIN DECLARE SECTION;
+    varchar order_id[20];
+    varchar item_id[20];
+    varchar member_id[20];
+    varchar quantity[20];
+    varchar status[20];
+
+    char dynstmt[1000];
+    EXEC SQL END DECLARE SECTION;
+
+    struct OrdersDto* resultList = (struct OrdersDto*) malloc(sizeof(struct OrdersDto) * 10); //구조체 배열 선언
+
+    sprintf(dynstmt, "SELECT * FROM orders");
+    
+    EXEC SQL PREPARE O FROM :dynstmt ;
+    EXEC SQL DECLARE o_cursor CURSOR FOR O ; 
+    EXEC SQL OPEN o_cursor;  
+
+    for(int i=0;;i++){
+        EXEC SQL WHENEVER NOT FOUND DO break;
+        EXEC SQL FETCH o_cursor INTO :order_id, :item_id, :member_id, :quantity, :status;
+            order_id.arr[order_id.len] = '\0';
+            item_id.arr[item_id.len] = '\0';
+            member_id.arr[member_id.len] = '\0';
+            quantity.arr[quantity.len] = '\0';
+            status.arr[status.len] = '\0';
+
+            resultList[i].order_id =  atoi(order_id.arr);
+            resultList[i].item_id =  atoi(item_id.arr);
+            strcpy(resultList[i].member_id, member_id.arr);
+            resultList[i].quantity = atoi(quantity.arr); 
+            strcpy(resultList[i].status, status.arr);
+    }
+
+    int fetch_num = sqlca.sqlerrd[2]; //전송된 튜플의 수
+    return resultList;
+}
+
+struct OrdersDto *select_Order(char id[]){
+    DB_connect();
+
+    EXEC SQL BEGIN DECLARE SECTION;
+    varchar order_id[20];
+    varchar item_id[20];
+    varchar member_id[20];
+    varchar quantity[20];
+    varchar status[20];
+
+    char dynstmt[1000];
+    EXEC SQL END DECLARE SECTION;
+
+    struct OrdersDto* resultList = (struct OrdersDto*) malloc(sizeof(struct OrdersDto) * 10); //구조체 배열 선언
+
+    sprintf(dynstmt, "SELECT * FROM orders WHERE member_id = '%s'",id);
+    EXEC SQL PREPARE OM FROM :dynstmt ;
+    EXEC SQL DECLARE om_cursor CURSOR FOR OM ; 
+    EXEC SQL OPEN om_cursor;  
+
+    for(int i=0;;i++){
+        EXEC SQL WHENEVER NOT FOUND DO break;
+        EXEC SQL FETCH om_cursor INTO :order_id, :item_id, :member_id, :quantity, :status;
+            order_id.arr[order_id.len] = '\0';
+            item_id.arr[item_id.len] = '\0';
+            member_id.arr[member_id.len] = '\0';
+            quantity.arr[quantity.len] = '\0';
+            status.arr[status.len] = '\0';
+
+            resultList[i].order_id =  atoi(order_id.arr);
+            resultList[i].item_id =  atoi(item_id.arr);
+            strcpy(resultList[i].member_id, member_id.arr);
+            resultList[i].quantity = atoi(quantity.arr); 
+            strcpy(resultList[i].status, status.arr);
+    }
+
+    int fetch_num = sqlca.sqlerrd[2]; //전송된 튜플의 수
+    return resultList;
+}
+
+struct OrdersDto select_OrderId(int id){ //select
+    DB_connect();
+    EXEC SQL BEGIN DECLARE SECTION;
+    varchar order_id[20];
+    varchar item_id[20];
+    varchar member_id[20];
+    varchar quantity[20];
+    varchar status[20];
+
+    char dynstmt[1000];
+    EXEC SQL END DECLARE SECTION;
+
+    EXEC SQL WHENEVER SQLERROR DO sql_error("\7ORACLE ERROR:\n");
+
+    sprintf(dynstmt, "SELECT * FROM orders where order_id = %d", id);
+
+    EXEC SQL PREPARE OI FROM :dynstmt ;
+    EXEC SQL DECLARE oi_cursor CURSOR FOR OI ; 
+    EXEC SQL OPEN oi_cursor ;   
+    EXEC SQL WHENEVER NOT FOUND CONTINUE;
+    
+    EXEC SQL FETCH oi_cursor INTO :order_id, :item_id, :member_id, :quantity, :status;
+    
+    order_id.arr[order_id.len] = '\0';
+    item_id.arr[item_id.len] = '\0';
+    member_id.arr[member_id.len] = '\0';
+    quantity.arr[quantity.len] = '\0';
+    status.arr[status.len] = '\0';
+
+    struct OrdersDto result;
+
+    result.order_id =  atoi(order_id.arr);
+    result.item_id =  atoi(item_id.arr);
+    strcpy(result.member_id, member_id.arr);
+    result.quantity = atoi(quantity.arr); 
+    strcpy(result.status, status.arr);
+
+    return result;
+}
+
+struct ItemsDto select_ItemId(int id){ //select
+    DB_connect();
+    EXEC SQL BEGIN DECLARE SECTION;
+    varchar item_id[100];
+    varchar name[100];
+    varchar price[100];
+    varchar stock[100];
+    varchar description[250];
+
+    char dynstmt[1000];
+    EXEC SQL END DECLARE SECTION;
+
+    EXEC SQL WHENEVER SQLERROR DO sql_error("\7ORACLE ERROR:\n");
+
+    sprintf(dynstmt, "SELECT * FROM items where item_id = %d", id);
+
+    EXEC SQL PREPARE I FROM :dynstmt ;
+    EXEC SQL DECLARE i_cursor CURSOR FOR I ; 
+    EXEC SQL OPEN i_cursor ;   
+    EXEC SQL WHENEVER NOT FOUND CONTINUE;
+    
+    
+    EXEC SQL FETCH i_cursor INTO :item_id, :name, :price, :stock, :description;
+
+    item_id.arr[item_id.len] = '\0';
+    name.arr[name.len] = '\0';
+    price.arr[price.len] = '\0';
+    stock.arr[stock.len] = '\0';
+    description.arr[description.len] = '\0';
+            
+    struct ItemsDto result;
+
+    result.item_id =  atoi(item_id.arr);
+    strcpy(result.name, name.arr);
+    result.price = atoi(price.arr); 
+    result.stock = atoi(stock.arr);
+    strcpy(result.description, description.arr);
+    
+
+    return result;
+}
+
+void sql_error(char *msg)
+{
+    char err_msg[128];
+    size_t buf_len, msg_len;
+
+    EXEC SQL WHENEVER SQLERROR CONTINUE;
+
+    printf("\n%s\n", msg);
+    buf_len = sizeof (err_msg);
+    sqlglm(err_msg, &buf_len, &msg_len);
+    printf("%.*s\n", msg_len, err_msg);
+
+    getch();
+    EXEC SQL ROLLBACK WORK ;
+
+}
